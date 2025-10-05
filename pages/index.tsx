@@ -307,8 +307,6 @@ function choiceLabel(choice: BotChoice): string {
     default: return String(choice);
   }
 }
-
-
 /* ====== 雷达图累计（0~5） ====== */
 type Score5 = { coop:number; agg:number; cons:number; eff:number; rob:number };
 function mergeScore(prev: Score5, curr: Score5, mode: 'mean'|'ewma', count:number, alpha:number): Score5 {
@@ -331,10 +329,6 @@ function mergeScore(prev: Score5, curr: Score5, mode: 'mean'|'ewma', count:numbe
     rob:  a*curr.rob  + (1-a)*prev.rob,
   };
 }
-
-
-
-
 /* ---------- 文本改写：把“第 x 局”固定到本局 ---------- */
 const makeRewriteRoundLabel = (n: number) => (msg: string) => {
   if (typeof msg !== 'string') return msg;
@@ -434,8 +428,6 @@ function LivePanel(props: LiveProps) {
   // 每局结束或数据变化时刷新统计
   useEffect(()=>{ recomputeScoreStats(); }, [roundCuts, scoreSeries]);
 ;
-
-
   // —— TrueSkill（前端实时） —— //
   const [tsArr, setTsArr] = useState<Rating[]>([{...TS_DEFAULT},{...TS_DEFAULT},{...TS_DEFAULT}]);
   const tsRef = useRef(tsArr); useEffect(()=>{ tsRef.current=tsArr; }, [tsArr]);
@@ -552,11 +544,6 @@ function LivePanel(props: LiveProps) {
     setLog(l => [...l, '【TS】已导出当前存档。']);
   };
 
-  // 刷新：按“当前地主身份”应用
-  const handleRefreshApply = () => {
-    applyTsFromStoreByRole(landlordRef.current, '手动刷新');
-  };
-
   // —— 用于“区分显示”的帮助函数 —— //
   const fmt2 = (x:number)=> (Math.round(x*100)/100).toFixed(2);
   const muSig = (r: Rating | null | undefined) => r ? `μ ${fmt2(r.mu)}｜σ ${fmt2(r.sigma)}` : '—';
@@ -569,8 +556,6 @@ function LivePanel(props: LiveProps) {
       farmer: p?.roles?.farmer ? ensureRating(p.roles.farmer) : null,
     };
   };
-
-
   /* ===== Radar（战术画像）本地存档（新增） ===== */
   type RadarAgg = { scores: Score5; count: number };
   type RadarStoreEntry = {
@@ -779,11 +764,6 @@ function LivePanel(props: LiveProps) {
 };
 ;
 
-  /** 手动刷新：按当前地主身份（未知则用 overall）把存档套到面板 */
-  const handleRadarRefresh = () => {
-    applyRadarFromStoreByRole(landlordRef.current, '手动刷新');
-  };
-
   // 累计画像
   const [aggMode, setAggMode] = useState<'mean'|'ewma'>('ewma');
   const [alpha, setAlpha] = useState<number>(0.35);
@@ -904,11 +884,15 @@ const handleScoreRefresh = () => {
     setRoundCuts(prev => [...prev]);
     setRoundLords(prev => [...prev]);
   };
+const [allLogs, setAllLogs] = useState<string[]>([]);
+const allLogsRef = useRef(allLogs);
+useEffect(() => { allLogsRef.current = allLogs; }, [allLogs]);
 const start = async () => {
     if (running) return;
     if (!props.enabled) { setLog(l => [...l, '【前端】未启用对局：请在设置中勾选“启用对局”。']); return; }
 
     setRunning(true);
+    setAllLogs([]);
     setLandlord(null); setHands([[], [], []]); setPlays([]);
     setWinner(null); setDelta(null); setMultiplier(1);
     setLog([]); setFinishedCount(0);
@@ -933,7 +917,7 @@ const start = async () => {
           case 'ai:grok':     return { choice, model, apiKey: keys.grok || '' };
           case 'ai:kimi':     return { choice, model, apiKey: keys.kimi || '' };
           case 'ai:qwen':     return { choice, model, apiKey: keys.qwen || '' };
-		  case 'ai:deepseek': return { choice, model, apiKey: keys.deepseek || '' };
+          case 'ai:deepseek': return { choice, model, apiKey: keys.deepseek || '' };
           case 'http':        return { choice, model, baseUrl: keys.httpBase || '', token: keys.httpToken || '' };
           default:            return { choice };
         }
@@ -1444,6 +1428,7 @@ nextTotals     = [
 
           if (dogId) { try { clearInterval(dogId); } catch {} }
     setLog(l => [...l, `—— 本局流结束 ——`]);
+    setAllLogs(prev => [...prev, ...logRef.current, `\n--- End of Round ${labelRoundNo} ---\n`]);
     };
 
     try {
@@ -1451,7 +1436,6 @@ nextTotals     = [
         if (controllerRef.current?.signal.aborted) break;
         const thisRound = i + 1;
         await playOneGame(i, thisRound);
-
         const hasNegative = Array.isArray(totalsRef.current) && totalsRef.current.some(v => (v as number) < 0);
         if (hasNegative) { setLog(l => [...l, '【前端】检测到总分 < 0，停止连打。']); break; }
         await new Promise(r => setTimeout(r, 800 + Math.floor(Math.random() * 600)));
@@ -1498,7 +1482,6 @@ const applyAllBundleInner = (obj:any) => {
     if (obj?.trueskill?.players) {
       tsStoreRef.current = obj.trueskill as TsStore;
       writeStore(tsStoreRef.current);
-      applyTsFromStoreByRole(landlordRef.current, '统一上传');
     }
     // radar ignored for ALL upload (persistence disabled)
 
@@ -1747,11 +1730,20 @@ const handleAllSaveInner = () => {
       </div>
 
       <div style={{ marginTop:18 }}>
-        <Section title="运行日志">
-          <div style={{ border:'1px solid #eee', borderRadius:8, padding:'8px 10px', maxHeight:420, overflow:'auto', background:'#fafafa' }}>
+        <Section title="">
+  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+    <div style={{ fontWeight:700 }}>运行日志</div>
+    <button
+      onClick={() => { try { const lines=(allLogsRef.current||[]) as string[]; const ts=new Date().toISOString().replace(/[:.]/g,'-'); const text=lines.length?lines.join('\n'):'（暂无）'; const blob=new Blob([text],{type:'text/plain;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`run-log_${ts}.txt`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1200);} catch(e){ console.error('[runlog] save error', e); } }}
+      style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}
+    >存档</button>
+  </div>
+
+<div style={{ border:'1px solid #eee', borderRadius:8, padding:'8px 10px', maxHeight:420, overflow:'auto', background:'#fafafa' }}>
             {log.length === 0 ? <div style={{ opacity:0.6 }}>（暂无）</div> : log.map((t, idx) => <LogLine key={idx} text={t} />)}
           </div>
-        </Section>
+        
+</Section>
       </div>
     </div>
   );
@@ -1872,8 +1864,6 @@ function Home() {
     };
     rd.readAsText(f);
   };
-
-
   return (
     <div style={{ maxWidth: 1080, margin:'24px auto', padding:'0 16px' }}>
       <h1 style={{ fontSize:28, fontWeight:900, margin:'6px 0 16px' }}>斗地主 · Fight the Landlord</h1>
@@ -1897,7 +1887,7 @@ function Home() {
           <label>局数
             <input type="number" min={1} step={1} value={rounds} onChange={e=>setRounds(Math.max(1, Math.floor(Number(e.target.value)||1)))} style={{ width:'100%' }}/>
           </label>
-		  
+          
           
 <div style={{ gridColumn:'1 / 2' }}>
   <div style={{ display:'flex', alignItems:'center', gap:24 }}>
@@ -1930,10 +1920,6 @@ function Home() {
       onClick={()=>window.dispatchEvent(new Event('ddz-all-save'))}
       style={{ padding:'3px 10px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}
     >存档</button>
-    <button
-      onClick={()=>window.dispatchEvent(new Event('ddz-all-refresh'))}
-      style={{ padding:'3px 10px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}
-    >刷新</button>
   </div>
 </div>
 <div style={{ gridColumn:'2 / 3' }}>
@@ -1943,9 +1929,6 @@ function Home() {
            style={{ width:'100%' }} />
           </label>
 </div>
-
-
-
           <div style={{ gridColumn:'2 / 3' }}>
   <label>4带2 规则
             <select value={four2} onChange={e=>setFour2(e.target.value as Four2Policy)} style={{ width:'100%' }}>
