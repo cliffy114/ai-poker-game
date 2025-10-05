@@ -610,11 +610,7 @@ function LivePanel(props: LiveProps) {
     } catch {}
     return emptyRadarStore();
   };
-  const writeRadarStore = (s: RadarStore) => {
-    try { s.updatedAt=new Date().toISOString();
-      localStorage.setItem(RADAR_STORE_KEY, JSON.stringify(s));
-    } catch {}
-  };
+  const writeRadarStore = (_s: RadarStore) => { /* no-op: radar not persisted */ };
 
   /** 用“均值 + 次数”合并（与前端 mean 聚合一致） */
   function mergeRadarAgg(prev: RadarAgg|null|undefined, inc: Score5): RadarAgg {
@@ -728,7 +724,7 @@ function LivePanel(props: LiveProps) {
       entry.meta = { choice, ...(model ? { model } : {}), ...(base ? { httpBase: base } : {}) };
       radarStoreRef.current.players[id] = entry;
     }
-    writeRadarStore(radarStoreRef.current);
+    // writeRadarStore disabled (no radar persistence)
   };
 
   /** 上传 Radar 存档（JSON） */
@@ -779,23 +775,9 @@ function LivePanel(props: LiveProps) {
 
   /** 导出当前 Radar 存档 */
   const handleRadarSave = () => {
-    if (aggStatsRef.current) {
-      const ids = [0,1,2].map(seatIdentity);
-      for (let i=0;i<3;i++){
-        const id = ids[i];
-        const entry = (radarStoreRef.current.players[id] || { id, roles:{} }) as RadarStoreEntry;
-        entry.overall = mergeRadarAgg(entry.overall, aggStatsRef.current[i]);
-        radarStoreRef.current.players[id] = entry;
-      }
-      writeRadarStore(radarStoreRef.current);
-    }
-
-    const blob = new Blob([JSON.stringify(radarStoreRef.current, null, 2)], { type:'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'radar_store.json'; a.click();
-    setTimeout(()=>URL.revokeObjectURL(url), 1200);
-    setLog(l => [...l, '【Radar】已导出当前存档。']);
-  };
+  setLog(l => [...l, '【Radar】存档已禁用（仅支持查看/刷新，不再保存到本地或 ALL 文件）。']);
+};
+;
 
   /** 手动刷新：按当前地主身份（未知则用 overall）把存档套到面板 */
   const handleRadarRefresh = () => {
@@ -1371,11 +1353,12 @@ nextTotals     = [
                   const base = 20, cap = 3, gamma = 1;
                   const weight = 1 + gamma * Math.min(cap, mag / base);
                   for (let i=0;i<3;i++) {
-                    const sWin = teamWin(i) ? 1 : 0;
-                    const pExp = teamP(i);
+                    const sWinTeam = teamWin(i) ? 1 : 0;
+                    const pExpTeam = teamP(i);
+                    const scale    = (i === L) ? 1 : 0.5;  // 地主记一份，两个农民各记半份
                     const id = seatIdentity(i);
                     const label = agentIdForIndex(i);
-                    ladderUpdateLocal(id, label, sWin, pExp, weight);
+                    ladderUpdateLocal(id, label, sWinTeam * scale, pExpTeam * scale, weight);
                   }
                 } catch {}
 // ✅ TrueSkill：局后更新 + 写入“角色分档”存档
@@ -1484,45 +1467,50 @@ nextTotals     = [
   const remainingGames = Math.max(0, (props.rounds || 1) - finishedCount);
 
   // ===== 统一统计打包（All-in-One） =====
-  type AllBundle = {
-    schema: 'ddz-all@1';
-    createdAt: string;
-    agents: string[];
-    trueskill?: TsStore;
-    radar?: RadarStore;
-    scoreTimeline?: { n:number; rounds:number[]; seriesBySeat:(number|null)[][]; landlords?:number[] };
-    scoreStats?: { stats: SeatStat[]; dists: number[][] };
-    ladder?: { schema:'ddz-ladder@1'; updatedAt:string; players: Record<string, any> };
-  };
+type AllBundle = {
+  schema: 'ddz-all@1';
+  createdAt: string;
+  identities: string[];
+  trueskill?: TsStore;
+  /* radar?: RadarStore;  // disabled */
+  ladder?: { schema:'ddz-ladder@1'; updatedAt:string; players: Record<string, any> };
+};
 
-  const buildAllBundle = (): AllBundle => {
-    const agents = [0,1,2].map(agentIdForIndex);
-    const n = Math.max(
-      scoreSeriesRef.current[0]?.length||0,
-      scoreSeriesRef.current[1]?.length||0,
-      scoreSeriesRef.current[2]?.length||0
-    );
-    return {
-      schema: 'ddz-all@1',
-      createdAt: new Date().toISOString(),
-      agents,
-      trueskill: tsStoreRef.current,
-      radar: radarStoreRef.current as any,
-      ladder: (function(){ try{ const raw = localStorage.getItem('ddz_ladder_store_v1'); return raw? JSON.parse(raw): null }catch{ return null } })(),
-      scoreTimeline: {
-        n,
-        rounds: roundCutsRef.current.slice(),
-        seriesBySeat: scoreSeriesRef.current.map(a => Array.isArray(a) ? a.slice() : []),
-        landlords: roundLordsRef.current.slice(),
-      },
-      scoreStats: {
-        stats: scoreStats,
-        dists: scoreDists,
-      },
-    };
+const buildAllBundle = (): AllBundle => {
+  const identities = [0,1,2].map(seatIdentity);
+  let ladder: any = null;
+  try {
+    const raw = localStorage.getItem('ddz_ladder_store_v1');
+    ladder = raw ? JSON.parse(raw) : null;
+  } catch {}
+  return {
+    schema: 'ddz-all@1',
+    createdAt: new Date().toISOString(),
+    identities,
+    trueskill: tsStoreRef.current,
+    /* radar excluded */
+    ladder,
   };
+};
 
-  const handleAllSaveInner = () => {
+const applyAllBundleInner = (obj:any) => {
+  try {
+    if (obj?.trueskill?.players) {
+      tsStoreRef.current = obj.trueskill as TsStore;
+      writeStore(tsStoreRef.current);
+      applyTsFromStoreByRole(landlordRef.current, '统一上传');
+    }
+    // radar ignored for ALL upload (persistence disabled)
+
+    if (obj?.ladder?.schema === 'ddz-ladder@1') {
+      try { localStorage.setItem('ddz_ladder_store_v1', JSON.stringify(obj.ladder)); } catch {}
+    }
+    setLog(l => [...l, '【ALL】统一上传完成（TS / 画像 / 天梯）。']);
+  } catch (e:any) {
+    setLog(l => [...l, `【ALL】统一上传失败：${e?.message || e}`]);
+  }
+};
+const handleAllSaveInner = () => {
     const payload = buildAllBundle();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1531,34 +1519,7 @@ nextTotals     = [
     setLog(l => [...l, '【ALL】已导出统一统计文件。']);
   };
 
-  const applyAllBundleInner = (obj:any) => {
-    try {
-      if (obj?.trueskill?.players) {
-        tsStoreRef.current = obj.trueskill as TsStore;
-        writeStore(tsStoreRef.current);
-        applyTsFromStoreByRole(landlordRef.current, '统一上传');
-      }
-      if (obj?.radar?.players) {
-        radarStoreRef.current = obj.radar as any;
-        writeRadarStore(radarStoreRef.current);
-        applyRadarFromStoreByRole(landlordRef.current, '统一上传');
-      }
-      if (obj?.ladder?.schema === 'ddz-ladder@1') { try { localStorage.setItem('ddz_ladder_store_v1', JSON.stringify(obj.ladder)); } catch {} }
-      if (obj?.scoreTimeline?.seriesBySeat) {
-        const tl = obj.scoreTimeline;
-        setScoreSeries(tl.seriesBySeat as (number|null)[][]);
-        if (Array.isArray(tl.rounds))     setRoundCuts(tl.rounds);
-        if (Array.isArray(tl.landlords))  setRoundLords(tl.landlords);
-      }
-      if (obj?.scoreStats?.stats && obj?.scoreStats?.dists) {
-        setScoreStats(obj.scoreStats.stats as any);
-        setScoreDists(obj.scoreStats.dists as any);
-      }
-      setLog(l => [...l, '【ALL】统一上传完成。']);
-    } catch (e:any) {
-      setLog(l => [...l, `【ALL】统一上传失败：${e?.message || e}`]);
-    }
-  };
+  
 
   const handleAllRefreshInner = () => {
     applyTsFromStoreByRole(landlordRef.current, '手动刷新');
@@ -1915,7 +1876,7 @@ function Home() {
 
   return (
     <div style={{ maxWidth: 1080, margin:'24px auto', padding:'0 16px' }}>
-      <h1 style={{ fontSize:28, fontWeight:900, margin:'6px 0 16px' }}>斗地主 · Bot Arena</h1>
+      <h1 style={{ fontSize:28, fontWeight:900, margin:'6px 0 16px' }}>斗地主 · Fight the Landlord</h1>
 
       <div style={{ border:'1px solid #eee', borderRadius:12, padding:14, marginBottom:16 }}>
         <div style={{ fontSize:18, fontWeight:800, marginBottom:6 }}>对局设置</div>
@@ -1950,8 +1911,8 @@ function Home() {
     </label>
   </div>
   <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:6, flexWrap:'wrap' }}>
-    <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:14, fontWeight:600 }}>
-      统一： TrueSkill / 画像 / 出牌评分 / 评分统计 / 天梯
+    <label style={{ display:'flex', alignItems:'center', gap:8 }}>
+      天梯  /  TrueSkill
     <input
       ref={allFileRef}
       type="file"
