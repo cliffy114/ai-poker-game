@@ -1,3 +1,38 @@
+
+// ====== Language Switch Injection Start ======
+import React, { useState } from 'react';
+
+const translations = {
+  zh: {
+    title: "斗地主 · Fight the Landlord",
+    matchSettings: "对局设置",
+    enablePairing: "启用对局",
+    rounds: "局数",
+    initialScore: "初始分",
+    possibleLandlord: "可抢地主",
+    rule: "规则",
+    aiSettings: "每家 AI 设置（独立）",
+    select: "选择",
+    minInterval: "最小间隔 (ms)",
+    thinkTime: "弃牌时间 (秒)",
+    rating: "天梯积分（活动积分 AR）",
+  },
+  en: {
+    title: "Fight the Landlord",
+    matchSettings: "Match Settings",
+    enablePairing: "Enable Match",
+    rounds: "Rounds",
+    initialScore: "Initial Score",
+    possibleLandlord: "Landlord Mode",
+    rule: "Rule",
+    aiSettings: "Each AI Settings (Independent)",
+    select: "Select",
+    minInterval: "Min Interval (ms)",
+    thinkTime: "Discard Time (s)",
+    rating: "Rating (Active Rating AR)",
+  },
+};
+// ====== Language Switch Injection End ======
 // pages/index.tsx
 import { useEffect, useRef, useState } from 'react';
 
@@ -18,7 +53,10 @@ const TS_DEFAULT: Rating = { mu:25, sigma:25/3 };
 const TS_BETA = 25/6;
 const TS_TAU  = 25/300;
 const SQRT2 = Math.sqrt(2);
-function erf(x:number){ const s=Math.sign(x); const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911; const t=1/(1+p*Math.abs(x)); const y=1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x); return s*y; }
+function erf(x:number){
+  const [lang, setLang] = useState<'zh' | 'en'>('zh');
+  const t = (key: keyof typeof translations['zh']) => translations[lang][key];
+ const s=Math.sign(x); const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911; const t=1/(1+p*Math.abs(x)); const y=1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x); return s*y; }
 function phi(x:number){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
 function Phi(x:number){ return 0.5*(1+erf(x/SQRT2)); }
 function V_exceeds(t:number){ const d=Math.max(1e-12,Phi(t)); return phi(t)/d; }
@@ -107,7 +145,23 @@ const rankOf = (l: string) => {
   if (!l) return '';
   const c0 = l[0];
   if ('♠♥♦♣'.includes(c0)) return l.slice(1).replace(/10/i, 'T').toUpperCase();
-  if (c0 === '🃏') return (l.slice(2) || 'X').replace(/10/i, 'T').toUpperCase();
+  if (c0 === '🃏') return (
+      {/* ===== Language Switch Button ===== */}
+      <div style={{ textAlign: 'right', marginBottom: 10 }}>
+        <button
+          onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: '6px',
+            border: '1px solid #ccc',
+            background: '#f9f9f9',
+            cursor: 'pointer',
+          }}
+        >
+          🌐 {lang === 'zh' ? '中文 | English' : 'English | 中文'}
+        </button>
+      </div>
+l.slice(2) || 'X').replace(/10/i, 'T').toUpperCase();
   return l.replace(/10/i, 'T').toUpperCase();
 };
 function candDecorations(l: string): string[] {
