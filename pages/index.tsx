@@ -1,40 +1,266 @@
+// pages/index.tsx
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+/* ======= Minimal i18n (zh/en) injection: BEGIN ======= */
+type Lang = 'zh' | 'en';
+const LangContext = createContext<Lang>('zh');
 
-// ====== Language Switch Injection Start ======
-import React, { useState } from 'react';
-
-const translations = {
+const I18N: Record<Lang, Record<string, string>> = {
   zh: {
-    title: "斗地主 · Fight the Landlord",
-    matchSettings: "对局设置",
-    enablePairing: "启用对局",
-    rounds: "局数",
-    initialScore: "初始分",
-    possibleLandlord: "可抢地主",
-    rule: "规则",
-    aiSettings: "每家 AI 设置（独立）",
-    select: "选择",
-    minInterval: "最小间隔 (ms)",
-    thinkTime: "弃牌时间 (秒)",
-    rating: "天梯积分（活动积分 AR）",
+    Title: '斗地主 · Fight the Landlord',
+    Settings: '对局设置',
+    Enable: '启用对局',
+    Reset: '清空',
+    EnableHint: '关闭后不可开始/继续对局；再次勾选即可恢复。',
+    LadderTitle: '天梯图（活动积分 ΔR）',
+    LadderRange: '范围 ±K（按局面权重加权，当前 K≈{K}；未参赛=历史或0）',
+    Pass: '过',
+    Play: '出牌',
+    Empty: '（空）',
+    Upload: '上传',
+    Save: '存档',
+    FarmerCoop: '农民配合',
   },
   en: {
-    title: "Fight the Landlord",
-    matchSettings: "Match Settings",
-    enablePairing: "Enable Match",
-    rounds: "Rounds",
-    initialScore: "Initial Score",
-    possibleLandlord: "Landlord Mode",
-    rule: "Rule",
-    aiSettings: "Each AI Settings (Independent)",
-    select: "Select",
-    minInterval: "Min Interval (ms)",
-    thinkTime: "Discard Time (s)",
-    rating: "Rating (Active Rating AR)",
-  },
+    Title: 'Fight the Landlord',
+    Settings: 'Match settings',
+    Enable: 'Enable match',
+    Reset: 'Reset',
+    EnableHint: 'Disabled matches cannot start/continue; tick again to restore.',
+    LadderTitle: 'Ladder (ΔR)',
+    LadderRange: 'Range ±K (weighted by situation, current K≈{K}; no-participation = history or 0)',
+    Pass: 'Pass',
+    Play: 'Play',
+    Empty: '(empty)',
+    Upload: 'Upload',
+    Save: 'Save',
+    FarmerCoop: 'Farmer cooperation',}
 };
-// ====== Language Switch Injection End ======
-// pages/index.tsx
-import { useEffect, useRef, useState } from 'react';
+
+function useI18n() {
+  const lang = useContext(LangContext);
+  const t = (key: string, vars: Record<string, any> = {}) => {
+    let s = (I18N[lang]?.[key] ?? I18N.zh[key] ?? key);
+    s = s.replace(/\{(\w+)\}/g, (_: any, k: string) => (vars[k] ?? `{${k}}`));
+    return s;
+  };
+  return { lang, t };
+}
+
+function seatLabel(i: number, lang: Lang) {
+  return (lang === 'en' ? ['A', 'B', 'C'] : ['甲', '乙', '丙'])[i] || String(i);
+}
+/* ======= Minimal i18n (zh/en) injection: END ======= */
+
+/* ======= UI auto-translation utilities (DOM walker) ======= */
+type TransRule = { zh: string | RegExp; en: string };
+
+const TRANSLATIONS: TransRule[] = [
+  { zh: '存档', en: 'Save' },
+  { zh: '上传', en: 'Upload' },
+  { zh: '下载', en: 'Download' },
+  { zh: '导出', en: 'Export' },
+  { zh: '导入', en: 'Import' },
+  { zh: '刷新', en: 'Refresh' },
+  { zh: '运行日志', en: 'Run Log' },
+  { zh: '对局设置', en: 'Match settings' },
+  { zh: '启用对局', en: 'Enable match' },
+  { zh: '清空', en: 'Reset' },
+  { zh: '出牌', en: 'Play' },
+  { zh: '过', en: 'Pass' },
+  { zh: '（空）', en: '(empty)' },
+  { zh: '地主', en: 'Landlord' },
+  { zh: '农民', en: 'Farmer' },
+  { zh: '农民配合', en: 'Farmer cooperation' },
+  { zh: '开始', en: 'Start' },
+  { zh: '暂停', en: 'Pause' },
+  { zh: '继续', en: 'Resume' },
+  { zh: '停止', en: 'Stop' },
+  { zh: '天梯图', en: 'Ladder' },
+  { zh: '活动积分', en: 'ΔR' },
+  { zh: '范围', en: 'Range' },
+  { zh: '当前', en: 'Current' },
+  { zh: '未参赛', en: 'Not played' },
+  { zh: '历史', en: 'History' },
+
+  // === Added for full UI coverage ===
+  { zh: '局数', en: 'Rounds' },
+  { zh: '初始分', en: 'Initial Score' },
+  { zh: /4带2\s*规则/, en: '4-with-2 Rule' },
+  { zh: '都可', en: 'Allowed' },
+  { zh: '不可', en: 'Not allowed' },
+  { zh: '选择', en: 'Select' },
+  { zh: /每家AI设置（独立）|每家AI设置\s*\(独立\)/, en: 'Per-player AI (independent)' },
+  { zh: /每家出牌最小间隔（ms）|每家出牌最小间隔\s*\(ms\)/, en: 'Per-player min play interval (ms)' },
+  { zh: /每家思考超时（秒）|每家思考超时\s*\(秒\)/, en: 'Per-player think timeout (s)' },
+  { zh: /最小间隔（ms）|最小间隔\s*\(ms\)/, en: 'Min interval (ms)' },
+  { zh: /弃牌时间（秒）|弃牌时间\s*\(秒\)/, en: 'Discard time (s)' },
+  { zh: /（独立）|\(独立\)/, en: '(independent)' },
+  { zh: /（ms）|\(ms\)/, en: '(ms)' },
+  { zh: /（秒）|\(秒\)/, en: '(s)' },
+  { zh: /天梯\s*\/\s*TrueSkill/, en: 'Ladder / TrueSkill' },
+  { zh: '可抢地主', en: 'Outbid the landlord' },
+  { zh: '局', en: 'round(s)' },
+  { zh: '开始', en: 'Start' },
+  { zh: '暂停', en: 'Pause' },
+  { zh: '继续', en: 'Resume' },
+  { zh: '停止', en: 'Stop' },
+
+
+  // === Added for extended UI coverage (batch 2) ===
+  { zh: '甲', en: 'A' },
+  { zh: '乙', en: 'B' },
+  { zh: '丙', en: 'C' },
+
+  { zh: '对局', en: 'Match' },
+  { zh: /TrueSkill（实时）|TrueSkill\s*\(实时\)/, en: 'TrueSkill (live)' },
+  { zh: /当前使用：?/, en: 'Current: ' },
+  { zh: '总体档', en: 'Overall' },
+
+  { zh: /战术画像（累计，0[-~~—––]5）|战术画像（累计，0~5）|战术画像\s*\(累计[,，]?\s*0\s*[-–~]\s*5\)/, en: 'Tactical profile (cumulative, 0–5)' },
+  { zh: /汇总方式\s*指数加权（推荐）|汇总方式\s*指数加权\s*\(推荐\)/, en: 'Aggregation: exponentially weighted (recommended)' },
+
+  { zh: /出牌评分（每局动态）|出牌评分\s*\(每局动态\)/, en: 'Play score (per hand, dynamic)' },
+  { zh: /评分统计（每局汇总）|评分统计\s*\(每局汇总\)/, en: 'Score stats (per hand, summary)' },
+
+  { zh: '最近一局均值：', en: 'Last-hand mean: ' },
+  { zh: '最好局均值：', en: 'Best-hand mean: ' },
+  { zh: '最差局均值：', en: 'Worst-hand mean: ' },
+  { zh: '总体均值：', en: 'Overall mean: ' },
+  { zh: '局数：', en: 'Hands: ' },
+
+  { zh: '手牌', en: 'Cards on hand' },
+  { zh: '结果', en: 'Result' },
+  { zh: '倍数', en: 'Multiplier' },
+  { zh: '胜者', en: 'Winner' },
+  { zh: '本局加减分', en: 'Points this hand' },
+
+  { zh: /（尚无出牌）|\(尚无出牌\)/, en: '(no plays yet)' },
+
+  { zh: '剩余局数：', en: 'Remaining hands: ' },
+  { zh: '剩余局数', en: 'Remaining hands' },
+
+
+  // === Added for extended UI coverage (batch 3) ===
+  { zh: /每家\s*AI\s*设置/, en: 'Per-player AI settings' },
+  { zh: /（独立）/, en: '(independent)' },
+  { zh: /\(独立\)/, en: '(independent)' },
+
+  { zh: '总体档', en: 'Overall' },
+  { zh: /总体(?!均值)/, en: 'Overall' },
+
+  { zh: '汇总方式', en: 'Aggregation' },
+  { zh: '指数加权（推荐）', en: 'Exponentially weighted (recommended)' },
+  { zh: /\(推荐\)/, en: '(recommended)' },
+  { zh: /越大越看重最近几局/, en: 'Larger value emphasizes recent hands' },
+  { zh: /（等待至少一局完成后生成累计画像）/, en: '(Generated after at least one hand completes)' },
+  { zh: /\(等待至少一局完成后生成累计画像\)/, en: '(Generated after at least one hand completes)' },
+
+  { zh: /横轴[:：]\s*/, en: 'X-axis: ' },
+  { zh: /纵轴[:：]\s*/, en: 'Y-axis: ' },
+  { zh: /第几手牌/, en: 'hand index' },
+
+
+  // === Added for extended UI coverage (batch 4) ===
+  { zh: /按[“\"“]?内置\/AI\+模型\/版本\(\+HTTP Base\)[”\"”]?识别，并区分地主\/农民。?/, en: 'Recognize by "built-in/AI+model/version (+HTTP Base)" and distinguish Landlord/Farmer.' },
+  { zh: /说明[:：]\s*CR 为置信下界（越高越稳）；每局结算后自动更新（也兼容后端直接推送 TS）。?/, en: 'Note: CR is the lower confidence bound (higher is more stable); updates after each hand (also supports backend-pushed TS).' },
+  { zh: /每局开始时底色按[“\"“]?本局地主[”\"”]?的线色变化提示；上传文件可替换\/叠加历史，必要时点[“\"“]?刷新[”\"”]?。?/, en: 'At the start of each hand, background follows the current Landlord color; uploads can replace/append history; click "Refresh" if needed.' },
+  { zh: /α/, en: 'alpha' },  // symbol label near alpha
+  { zh: /指数加权（推荐）/, en: 'Exponentially weighted (recommended)' },
+  { zh: /当前使用[:：]\s*/, en: 'Current: ' },
+  { zh: /总体档/, en: 'Overall' },
+  { zh: /总体(?!均值)/, en: 'Overall' },
+
+  { zh: '关闭后不可开始/继续对局；再次勾选即可恢复。', en: 'Disabled matches cannot start/continue; tick again to restore.' },
+];
+function hasChinese(s: string) { return /[\u4e00-\u9fff]/.test(s); }
+
+function translateTextLiteral(s: string): string {
+  let out = s;
+  for (const r of TRANSLATIONS) {
+    if (typeof r.zh === 'string') {
+      if (out === r.zh) out = r.en;
+    } else {
+      out = out.replace(r.zh, r.en);
+    }
+  }
+  return out;
+}
+
+function autoTranslateContainer(root: HTMLElement | null, lang: Lang) {
+  if (!root) return;
+  const tags = new Set(['BUTTON','LABEL','DIV','SPAN','P','H1','H2','H3','H4','H5','H6','TD','TH','A','LI','STRONG','EM','SMALL','CODE','OPTION']);
+  const accept = (node: any) => {
+    const el = node.parentElement as HTMLElement | null;
+    if (!el) return NodeFilter.FILTER_REJECT;
+    if (!tags.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+    if (el.closest('[data-i18n-ignore]')) return NodeFilter.FILTER_REJECT;
+    const txt = String(node.nodeValue || '').trim();
+      if (!txt || !/[\u4e00-\u9fff]/.test(txt)) return NodeFilter.FILTER_REJECT;
+    return NodeFilter.FILTER_ACCEPT;
+  };
+  const apply = (scope: HTMLElement) => {
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, { acceptNode: accept } as any);
+    let n: any;
+    while ((n = walker.nextNode())) {
+      const textNode = n as Text;
+      const el = textNode.parentElement as HTMLElement | null;
+      if (!el) continue;
+      if (lang === 'zh') {
+        const orig = el.getAttribute('data-i18n-orig');
+        if (orig != null) textNode.nodeValue = orig;
+      } else {
+        if (!el.hasAttribute('data-i18n-orig')) el.setAttribute('data-i18n-orig', textNode.nodeValue || '');
+      const v = textNode.nodeValue || '';
+      if (/[\u4e00-\u9fff]/.test(v)) textNode.nodeValue = translateTextLiteral(v);
+      if (el) el.setAttribute('data-i18n-en', textNode.nodeValue || '');
+}
+    }
+  };
+  // initial pass
+  apply(root);
+  // observe dynamic updates once
+  if (typeof MutationObserver !== 'undefined' && !root.hasAttribute('data-i18n-observed')) {
+    let i18nBatchQueue = new Set<HTMLElement>();
+    let i18nBatchScheduled = false;
+    const i18nSchedule = () => { if (i18nBatchScheduled) return; i18nBatchScheduled = true; requestAnimationFrame(() => { i18nBatchScheduled = false; i18nBatchQueue.forEach(n=>{ try { apply(n); } catch {} }); i18nBatchQueue.clear(); }); };
+    const obs = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'childList') {
+          (m.addedNodes || []).forEach((node: any) => { if (node && node.nodeType === 1) { i18nBatchQueue.add(node as HTMLElement); i18nSchedule(); } });
+        } else if (m.type === 'characterData' && m.target && (m.target as any).parentElement) {
+          i18nBatchQueue.add((m.target as any).parentElement as HTMLElement); i18nSchedule();
+        }
+
+
+// --- i18n click-compat shim ---
+// Ensures buttons translated to English still work if code checks Chinese text at click time.
+if (typeof document !== 'undefined' && !document.body.hasAttribute('data-i18n-click-swapper')) {
+  document.addEventListener('click', (ev) => {
+    try {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const el = (target.closest('button, [role="button"], .btn, .Button') as HTMLElement) || null;
+      if (!el) return;
+      if (document.documentElement.lang !== 'en') return;
+      const zh = el.getAttribute('data-i18n-orig');
+      const en = el.getAttribute('data-i18n-en');
+      const current = (el.textContent || '').trim();
+      if (zh && en && current === en.trim()) {
+        el.textContent = zh;
+        setTimeout(() => { try { if (el.isConnected) el.textContent = en; } catch {} }, 0);
+      }
+    } catch {}
+  }, true); // capture phase, before app handlers
+  document.body.setAttribute('data-i18n-click-swapper', '1');
+}
+
+      }
+    });
+    obs.observe(root, { childList: true, characterData: true, subtree: true });
+    root.setAttribute('data-i18n-observed', '1');
+  }
+}
+
 
 type Four2Policy = 'both' | '2singles' | '2pairs';
 type BotChoice =
@@ -53,10 +279,7 @@ const TS_DEFAULT: Rating = { mu:25, sigma:25/3 };
 const TS_BETA = 25/6;
 const TS_TAU  = 25/300;
 const SQRT2 = Math.sqrt(2);
-function erf(x:number){
-  const [lang, setLang] = useState<'zh' | 'en'>('zh');
-  const t = (key: keyof typeof translations['zh']) => translations[lang][key];
- const s=Math.sign(x); const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911; const t=1/(1+p*Math.abs(x)); const y=1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x); return s*y; }
+function erf(x:number){ const s=Math.sign(x); const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911; const t=1/(1+p*Math.abs(x)); const y=1-(((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t)*Math.exp(-x*x); return s*y; }
 function phi(x:number){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
 function Phi(x:number){ return 0.5*(1+erf(x/SQRT2)); }
 function V_exceeds(t:number){ const d=Math.max(1e-12,Phi(t)); return phi(t)/d; }
@@ -134,8 +357,10 @@ type LiveProps = {
   turnTimeoutSecs?: number[];};
 
 function SeatTitle({ i }: { i:number }) {
-  return <span style={{ fontWeight:700 }}>{['甲','乙','丙'][i]}</span>;
+  const { lang } = useI18n();
+  return <span style={{ fontWeight:700 }}>{seatLabel(i, lang)}</span>;
 }
+
 
 type SuitSym = '♠'|'♥'|'♦'|'♣'|'🃏';
 const SUITS: SuitSym[] = ['♠','♥','♦','♣'];
@@ -145,23 +370,7 @@ const rankOf = (l: string) => {
   if (!l) return '';
   const c0 = l[0];
   if ('♠♥♦♣'.includes(c0)) return l.slice(1).replace(/10/i, 'T').toUpperCase();
-  if (c0 === '🃏') return (
-      {/* ===== Language Switch Button ===== */}
-      <div style={{ textAlign: 'right', marginBottom: 10 }}>
-        <button
-          onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-          style={{
-            padding: '6px 12px',
-            borderRadius: '6px',
-            border: '1px solid #ccc',
-            background: '#f9f9f9',
-            cursor: 'pointer',
-          }}
-        >
-          🌐 {lang === 'zh' ? '中文 | English' : 'English | 中文'}
-        </button>
-      </div>
-l.slice(2) || 'X').replace(/10/i, 'T').toUpperCase();
+  if (c0 === '🃏') return (l.slice(2) || 'X').replace(/10/i, 'T').toUpperCase();
   return l.replace(/10/i, 'T').toUpperCase();
 };
 function candDecorations(l: string): string[] {
@@ -204,20 +413,21 @@ function Card({ label }: { label:string }) {
   );
 }
 function Hand({ cards }: { cards: string[] }) {
-  if (!cards || cards.length === 0) return <span style={{ opacity: 0.6 }}>（空）</span>;
+  const { t } = useI18n();
+  if (!cards || cards.length === 0) return <span style={{ opacity: 0.6 }}>{t('Empty')}</span>;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap' }}>
       {cards.map((c, idx) => <Card key={`${c}-${idx}`} label={c} />)}
     </div>
   );
 }
-function PlayRow({ seat, move, cards, reason }:{
-  seat:number; move:'play'|'pass'; cards?:string[]; reason?:string
-}) {
+function PlayRow({ seat, move, cards, reason }:{ seat:number; move:'play'|'pass'; cards?:string[]; reason?:string }) {
+  const { t, lang } = useI18n();
+
   return (
     <div style={{ display:'flex', gap:8, alignItems:'center', padding:'6px 0' }}>
-      <div style={{ width:32, textAlign:'right', opacity:0.8 }}>{seatName(seat)}</div>
-      <div style={{ width:56, fontWeight:700 }}>{move === 'pass' ? '过' : '出牌'}</div>
+      <div style={{ width:32, textAlign:'right', opacity:0.8 }}>{seatLabel(seat, lang)}</div>
+      <div style={{ width:56, fontWeight:700 }}>{move === 'pass' ? t('Pass') : t('Play')}</div>
       <div style={{ flex:1 }}>
         {move === 'pass' ? <span style={{ opacity:0.6 }}>过</span> : <Hand cards={cards || []} />}
       </div>
@@ -235,6 +445,7 @@ function LogLine({ text }: { text:string }) {
 
 /* ===== 天梯图组件（x=ΔR_event，y=各 AI/内置；含未参赛=历史或0） ===== */
 function LadderPanel() {
+  const { t } = useI18n();
   const [tick, setTick] = useState(0);
   useEffect(()=>{
     const onAny = () => setTick(k=>k+1);
@@ -287,8 +498,8 @@ function LadderPanel() {
   return (
     <div style={{ border:'1px dashed #e5e7eb', borderRadius:8, padding:10, marginTop:10 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-        <div style={{ fontWeight:700 }}>天梯图（活动积分 ΔR）</div>
-        <div style={{ fontSize:12, color:'#6b7280' }}>范围 ±K（按局面权重加权，当前 K≈{K}；未参赛=历史或0）</div>
+        <div style={{ fontWeight:700 }}>{t('LadderTitle')}</div>
+        <div style={{ fontSize:12, color:'#6b7280' }}>{t('LadderRange', { K })}</div>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'240px 1fr 56px', gap:8 }}>
         {items.map((it:any)=>{
@@ -1872,6 +2083,34 @@ const DEFAULTS = {
 };
 
 function Home() {
+  // Ensure language applies before paint on refresh
+  useLayoutEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const v = localStorage.getItem('ddz_lang');
+        if (v === 'en' || v === 'zh') {
+          if (v !== lang) setLang(v as Lang);
+          if (typeof document !== 'undefined') document.documentElement.lang = v;
+        }
+      }
+    } catch {}
+  }, []);
+
+const [lang, setLang] = useState<Lang>(() => {
+    if (typeof window === 'undefined') return 'zh';
+    const v = localStorage.getItem('ddz_lang');
+    return (v === 'en' || v === 'zh') ? (v as Lang) : 'zh';
+  });
+  useEffect(()=>{
+    try {
+      localStorage.setItem('ddz_lang', lang);
+      if (typeof document !== 'undefined') document.documentElement.lang = lang;
+    } catch {}
+  }, [lang]);
+  const mainRef = useRef<HTMLDivElement | null>(null);
+  useEffect(()=>{ try { if (typeof document !== 'undefined') autoTranslateContainer(mainRef.current, lang); } catch {} }, [lang]);
+
+
   const [resetKey, setResetKey] = useState<number>(0);
   const [enabled, setEnabled] = useState<boolean>(DEFAULTS.enabled);
   const [rounds, setRounds] = useState<number>(DEFAULTS.rounds);
@@ -1919,8 +2158,17 @@ function Home() {
     rd.readAsText(f);
   };
   return (
-    <div style={{ maxWidth: 1080, margin:'24px auto', padding:'0 16px' }}>
+    <LangContext.Provider value={lang}>
+    <div style={{ maxWidth: 1080, margin:'24px auto', padding:'0 16px' }} ref={mainRef} key={lang}>
       <h1 style={{ fontSize:28, fontWeight:900, margin:'6px 0 16px' }}>斗地主 · Fight the Landlord</h1>
+<div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:8 }} data-i18n-ignore>
+  <span aria-hidden="true" title={lang==='en'?'Language':'语言'} style={{ fontSize:14, opacity:0.75, display:'inline-flex', alignItems:'center' }}>🌐</span>
+  <select aria-label={lang==='en'?'Language':'语言'} value={lang} onChange={e=>setLang((e.target.value as Lang))} style={{ padding:'4px 8px', border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
+    <option value="zh">中文</option>
+    <option value="en">English</option>
+  </select>
+</div>
+
 
       <div style={{ border:'1px solid #eee', borderRadius:12, padding:14, marginBottom:16 }}>
         <div style={{ fontSize:18, fontWeight:800, marginBottom:6 }}>对局设置</div>
@@ -2218,6 +2466,7 @@ function Home() {
         />
       </div>
     </div>
+    </LangContext.Provider>
   );
 }
 
