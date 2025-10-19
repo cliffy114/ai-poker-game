@@ -618,14 +618,36 @@ function applyEliminationToDraft(
 ) {
   const match = draft[roundIdx]?.matches?.[matchIdx];
   if (!match) return;
+  const nextTemplate = draft[roundIdx + 1];
   match.eliminated = eliminated;
   draft.length = roundIdx + 1;
   const current = draft[roundIdx];
   if (!current || !isRoundComplete(current)) return;
+
   const survivors = collectSurvivors(current);
-  if (survivors.length <= 1) return;
-  const shuffled = shuffleArray(survivors);
-  const nextMatches = buildMatchesFromPool(shuffled, roundIdx + 1);
+  const templatePlayers = (nextTemplate?.matches || [])
+    .flatMap(nextMatch => nextMatch.players || [])
+    .filter((player): player is KnockoutPlayer => !!player && player !== KO_BYE);
+
+  const pushUnique = (acc: KnockoutPlayer[], seen: Set<string>, player: KnockoutPlayer) => {
+    if (!player || player === KO_BYE) return;
+    if (seen.has(player)) return;
+    seen.add(player);
+    acc.push(player);
+  };
+
+  const seen = new Set<string>();
+  const pool: KnockoutPlayer[] = [];
+  for (const player of shuffleArray(survivors)) {
+    pushUnique(pool, seen, player);
+  }
+  for (const player of templatePlayers) {
+    pushUnique(pool, seen, player);
+  }
+
+  if (pool.length <= 1) return;
+
+  const nextMatches = buildMatchesFromPool(pool, roundIdx + 1, nextTemplate);
   if (nextMatches.length) {
     draft.push({ matches: nextMatches });
   }
