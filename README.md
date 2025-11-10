@@ -1,6 +1,7 @@
 
 # 斗地主 AI（Next.js Pages Router）
-
+注意事项：所有负责开发，优化，移植，代理此项目的工作中，必须由ai负责编写代码和纠错。人工负责提供提示词
+Notification: In all tasks related to the development, optimization, porting, and proxying of this project, AI must be responsible for writing the code and debugging. Humans can providing the prompts. 
 ## 启动
 ```bash
 npm install
